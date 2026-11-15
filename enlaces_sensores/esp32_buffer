@@ -1,0 +1,85 @@
+esphome:
+  name: monitor_biomedico_ttgo
+  friendly_name: Monitor biomédico TTGO
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+globals:
+  - id: demo_phase
+    type: float
+    restore_value: no
+    initial_value: '0'
+
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          id(demo_phase) += 0.08f;
+          if (id(demo_phase) > 6.28318f) id(demo_phase) = 0.0f;
+
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO19
+
+display:
+  - platform: st7789v
+    model: TTGO_TDISPLAY_135X240
+    dc_pin: GPIO16
+    reset_pin: GPIO23
+    cs_pin: GPIO5
+    rotation: 90
+    lambda: |-
+      it.fill(Color::BLACK);
+      it.printf(3, 2, id(font_small), Color(0, 220, 120), "MONITOR BIOMEDICO");
+      it.printf(190, 2, id(font_small), Color(120, 120, 120), "LOCAL");
+      it.printf(3, 22, id(font_small), Color(0, 255, 80), "ECG");
+      it.printf(3, 62, id(font_small), Color(0, 190, 255), "PLETH");
+      it.printf(3, 102, id(font_small), Color(0, 220, 255), "SpO2 TREND");
+      for (int x = 32; x < 240; x += 4) {
+        float t = (millis() * 0.004f) + x * 0.10f;
+        float ecg = 38 + 10 * sin(t) + 3 * sin(t * 3.0f);
+        float spike = fmod(t, 6.28f);
+        if (spike < 0.22f) ecg -= 22;
+        it.line(x, (int)ecg, x + 3, (int)(38 + 10 * sin(t + 0.12f) + 3 * sin((t + 0.12f) * 3.0f)), Color(0, 255, 80));
+        // Pletismografía estilizada: ascenso rápido, pico, muesca dicrótica y descenso.
+        float phase = fmod(t, 6.28318f);
+        float pulse = 0.0f;
+        if (phase < 0.75f) {
+          float u = phase / 0.75f;
+          pulse = 30.0f * (u * u * (3.0f - 2.0f * u));
+        } else if (phase < 1.15f) {
+          float u = (phase - 0.75f) / 0.40f;
+          pulse = 30.0f - 8.0f * u;
+        } else if (phase < 1.55f) {
+          float u = (phase - 1.15f) / 0.40f;
+          pulse = 22.0f + 5.0f * sin(u * 3.14159f);
+        } else if (phase < 2.05f) {
+          float u = (phase - 1.55f) / 0.50f;
+          pulse = 22.0f - 7.0f * u;
+        } else {
+          float u = (phase - 2.05f) / 4.23318f;
+          pulse = 15.0f * (1.0f - u) * (1.0f - u);
+        }
+        float pleth = 112.0f - pulse;
+        float phase2 = fmod(t + 0.12f, 6.28318f);
+        float p2 = (phase2 < 0.75f) ? 30.0f * ((phase2 / 0.75f) * (phase2 / 0.75f) * (3.0f - 2.0f * (phase2 / 0.75f))) : 0.0f;
+        float nextPleth = 112.0f - p2;
+        it.line(x, (int)pleth, x + 3, (int)nextPleth, Color(0, 190, 255));
+        float trend = 118 + 3 * sin(t * 0.18f);
+        it.line(x, (int)trend, x + 3, (int)(118 + 3 * sin((t + 0.12f) * 0.18f)), Color(0, 220, 255));
+      }
+      it.printf(3, 130, id(font_small), Color(180, 180, 180), "FC %3.0f lpm", 72.0f + 3.0f * sin(id(demo_phase)));
+      it.printf(3, 146, id(font_small), Color(180, 180, 180), "ECG GPIO34");
+      it.printf(3, 162, id(font_small), Color(180, 180, 180), "MAX30102 I2C");
+      it.printf(3, 178, id(font_small), Color(255, 200, 0), "senal en vivo");
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 12
+  - file: "gfonts://Roboto"
+    id: font_big
+    size: 24
